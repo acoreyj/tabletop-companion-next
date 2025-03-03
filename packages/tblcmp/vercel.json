@@ -32,12 +32,5 @@
     "env": {
       "NEXT_PUBLIC_VERCEL_ENV": "production"
     }
-  },
-  "regions": ["all"],
-  "functions": {
-    "app/**/*": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
   }
 }
