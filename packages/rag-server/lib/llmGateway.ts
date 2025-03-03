@@ -123,7 +123,6 @@ export async function fetchStreamingLanguageModelResponse({
     },
   ];
 
-  console.log("conversationHistory", conversationHistory);
   let chosenProvider: AIGatewayUniversalRequest | undefined;
   if (languageModelProvider && modelIdentifier) {
     chosenProvider = availableProviders.find(
@@ -232,37 +231,32 @@ export async function fetchCompleteLanguageModelResponse({
     }
   }
 
-  const gatewayUrl = `https://gateway.ai.cloudflare.com/v1/${organizationId}/${gatewayIdentifier}/`;
-  console.log("conversationHistory", conversationHistory);
-  const apiResponse = await fetch(gatewayUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify([chosenProvider]),
-  });
-  console.log({ apiResponse });
-  if (!apiResponse.ok) {
-    throw new Error(`HTTP error! status: ${apiResponse.status}`);
-  }
-
-  const responseData: any = await apiResponse.json();
-
-  // Handle different response formats based on the provider
   let textContent = "";
-  if (responseData.content && responseData.content.text) {
-    // Anthropic format
-    textContent = responseData.content.text;
-  } else if (
-    responseData.choices &&
-    responseData.choices[0] &&
-    responseData.choices[0].message
-  ) {
-    // OpenAI and Groq format
-    textContent = responseData.choices[0].message.content;
-  } else {
-    console.error("Unexpected response format:", responseData);
-    throw new Error("Unexpected response format from AI provider");
+  if (chosenProvider) {
+    const aiResponse = await workerAI
+      ?.gateway(gatewayIdentifier)
+      .run(chosenProvider);
+    if (!aiResponse || !aiResponse.ok) {
+      throw new Error(`HTTP error! status: ${aiResponse?.status}`);
+    }
+
+    const responseData: any = await aiResponse.json();
+
+    // Handle different response formats based on the provider
+    if (responseData.content && responseData.content.text) {
+      // Anthropic format
+      textContent = responseData.content.text;
+    } else if (
+      responseData.choices &&
+      responseData.choices[0] &&
+      responseData.choices[0].message
+    ) {
+      // OpenAI and Groq format
+      textContent = responseData.choices[0].message.content;
+    } else {
+      console.error("Unexpected response format:", responseData);
+      throw new Error("Unexpected response format from AI provider");
+    }
   }
 
   return textContent;

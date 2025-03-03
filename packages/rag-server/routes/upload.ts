@@ -206,15 +206,19 @@ async function processAndStoreEmbeddings({
 app.post("/", async (c) => {
   c.header("Content-Encoding", "Identity");
   const formData = await c.req.formData();
+  let r2Url: string | null = null;
+  let documentId: string | null = null;
+
+  // Initialize database connection
+  const db = drizzle(c.env.DB);
   return streamText(c, async (stream) => {
     try {
       console.log("Uploading file...");
       const clientIpAddress = c.req.header("cf-connecting-ip") || "";
 
       // Basic rate limiting to prevent abuse
-      const previousRequestTimestamp = await c.env.rate_limiter.get(
-        clientIpAddress
-      );
+      const previousRequestTimestamp =
+        await c.env.rate_limiter.get(clientIpAddress);
       if (previousRequestTimestamp) {
         const lastRequestTime = parseInt(previousRequestTimestamp);
         const currentTimestamp = Math.floor(Date.now() / 1000);
@@ -259,9 +263,6 @@ app.post("/", async (c) => {
         return;
       }
 
-      // Initialize database connection
-      const db = drizzle(c.env.DB);
-
       // Calculate file hash
       await sendProgressUpdate({ message: "Calculating file hash..." });
       const fileHash = await calculateFileHash(pdfFile);
@@ -284,7 +285,7 @@ app.post("/", async (c) => {
       // Step 1: Upload file to R2
       await sendProgressUpdate({ message: "Uploading file..." });
       console.info("Uploading file to R2...");
-      const r2Url = await storeFileInR2({
+      r2Url = await storeFileInR2({
         pdfFile,
         storageContainer: c.env.R2_BUCKET,
         sessionIdentifier: sessionId,
@@ -307,7 +308,12 @@ app.post("/", async (c) => {
         fileHash,
       });
 
-      const documentId = documentResult[0].insertedId;
+      documentId = documentResult[0].insertedId;
+
+      if (!documentId) {
+        await sendProgressUpdate({ error: "Failed to save document metadata" });
+        throw new Error("Failed to save document metadata");
+      }
 
       // Step 4: Split text into chunks
       await sendProgressUpdate({ message: "Splitting text into chunks..." });
@@ -345,6 +351,33 @@ app.post("/", async (c) => {
       console.info("Processing complete");
     } catch (error) {
       console.error("Error:", error);
+      // On error, delete the file from R2 if it was uploaded
+      if (r2Url) {
+        try {
+          const key = r2Url.split("/").pop();
+          if (key) {
+            console.info(`Deleting file ${key} from R2 due to error`);
+            await c.env.R2_BUCKET.delete(key);
+          }
+        } catch (deleteError) {
+          console.error("Error deleting file from R2:", deleteError);
+        }
+      }
+
+      // Delete document metadata from D1 if it was created
+      if (documentId) {
+        try {
+          console.info(
+            `Deleting document ${documentId} from database due to error`
+          );
+          await db
+            .delete(documents)
+            .where(eq(documents.id, documentId))
+            .execute();
+        } catch (dbError) {
+          console.error("Error deleting document from database:", dbError);
+        }
+      }
       // Handle errors
       await stream.write(
         JSON.stringify({

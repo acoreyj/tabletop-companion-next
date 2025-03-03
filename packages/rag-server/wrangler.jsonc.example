@@ -12,10 +12,12 @@
   "ai": {
     "binding": "AI"
   },
-  "vectorize": {
-    "binding": "VECTORIZE_INDEX",
-    "index_name": "cloudflare-rag-index"
-  },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE_INDEX",
+      "index_name": "cloudflare-rag-index",
+    },
+  ],
   "d1_databases": [
     {
       "binding": "DB",

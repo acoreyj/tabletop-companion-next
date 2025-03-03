@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { streamText } from "hono/streaming";
+import { stream } from "hono/streaming";
 import { RoleScopedChatInput } from "@cloudflare/workers-types";
 import { inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
@@ -8,7 +8,8 @@ import { ulid } from "ulidx";
 import {
   fetchCompleteLanguageModelResponse,
   fetchStreamingLanguageModelResponse,
-} from "../lib/aiGateway";
+} from "../lib/llmGateway";
+import { StreamingApi } from "hono/utils/stream";
 
 interface EmbeddingVectorResponse {
   shape: number[];
@@ -98,8 +99,6 @@ async function performFullTextSearch(searchPhrases: string[], database: any) {
     })
   );
 
-  console.log({ fts: searchResults });
-
   return searchResults
     .flat()
     .sort((a, b) => b.rank - a.rank)
@@ -185,12 +184,18 @@ async function fetchDocumentFragments(documentIds: string[], database: any) {
 async function handleUserQuery(
   requestData: any,
   environment: Bindings,
-  responseWriter: WritableStreamDefaultWriter
+  responseWriter: StreamingApi
 ) {
   const { provider, model, sessionId: sessionIdentifier } = requestData;
   const conversationHistory: RoleScopedChatInput[] =
     requestData.messages as RoleScopedChatInput[];
-  const systemInstructions = `You are a helpful assistant that answers questions based on the provided context. When giving a response, always include the source of the information in the format [1], [2], [3] etc.`;
+
+  const gameName = requestData.game;
+  const systemInstructions = `You are a helpful assistant that answers questions based on the provided context. ${
+    gameName
+      ? `You are playing a game called ${gameName}.`
+      : "You are playing a tabletop game."
+  } When giving a response, always include the source of the information in the format [1], [2], [3] etc.`;
   conversationHistory.unshift({ role: "system", content: systemInstructions });
   const latestUserMessage = conversationHistory[conversationHistory.length - 1];
   const userQuery = latestUserMessage.content;
@@ -209,24 +214,22 @@ async function handleUserQuery(
     message: "Querying vector index and full text search...",
     queries: enhancedQueries,
   };
+
   await responseWriter.write(
     textEncoder.encode(`data: ${JSON.stringify(queryProgressMessage)}\n\n`)
   );
-  console.log({ enhancedQueries });
 
   const [textSearchResults, vectorSearchResults] = await Promise.all([
     performFullTextSearch(enhancedQueries, database),
     performVectorSearch(enhancedQueries, environment, sessionIdentifier),
   ]);
 
-  console.log({ textSearchResults, vectorSearchResults });
   // Perform reciprocal rank fusion on textSearchResults and vectorSearchResults
   const combinedResults = combineSearchResults(
     textSearchResults,
     vectorSearchResults
   ).sort((a, b) => b.score - a.score);
 
-  console.log({ combinedResults });
   const relevantDocuments = await fetchDocumentFragments(
     combinedResults.map((result) => result.id).slice(0, 10),
     database
@@ -238,7 +241,6 @@ async function handleUserQuery(
     )
     .join("\n\n");
 
-  console.log({ formattedDocuments });
   const documentsFoundMessage = {
     message: "Found relevant documents, generating response...",
     relevantContext: relevantDocuments,
@@ -258,13 +260,10 @@ async function handleUserQuery(
   return { messages: conversationHistory, provider, model };
 }
 
-/**
- * Streams the LLM response to the client
- */
 async function streamAiResponse(
   params: Awaited<ReturnType<typeof handleUserQuery>>,
   environment: Bindings,
-  outputStream: WritableStream
+  outputStream: StreamingApi
 ) {
   const { messages: conversationHistory, provider, model } = params;
   const apiCredentials = {
@@ -282,48 +281,16 @@ async function streamAiResponse(
     workerAI: environment.AI,
   });
 
-  console.log("aiStream", aiStream);
-
   // Handle the streaming response
   if ((aiStream as Response).body) {
-    console.log("serverstream body");
-    // Create a text decoder to convert the stream chunks to text
-    const textDecoder = new TextDecoder();
-
-    // Create a reader to read from the stream
-    const streamReader = (aiStream as Response).body!.getReader();
-
-    try {
-      // Read chunks from the stream and process them
-      while (true) {
-        const { done, value } = await streamReader.read();
-        if (done) break;
-
-        // Decode the chunk and log it
-        const chunkText = textDecoder.decode(value, { stream: true });
-        console.log("Streaming chunk:", chunkText);
-      }
-    } catch (error) {
-      console.error("Error reading from stream:", error);
-    } finally {
-      streamReader.releaseLock();
-    }
-  }
-  if ((aiStream as Response).body) {
-    console.log("stream body");
-    await (aiStream as Response).body!.pipeTo(outputStream);
+    await outputStream.pipe((aiStream as Response).body!);
   } else {
-    console.log("stream stream");
-    await (aiStream as ReadableStream).pipeTo(outputStream);
+    await outputStream.pipe(aiStream as ReadableStream);
   }
 }
 
 // POST endpoint for querying with streaming response
 router.post("/", async (context) => {
-  context.header("Content-Encoding", "Identity");
-  const { readable: readableStream, writable: writableStream } =
-    new TransformStream();
-  const responseWriter = writableStream.getWriter();
   const clientIpAddress = context.req.header("cf-connecting-ip") || "";
 
   // Basic rate limiting
@@ -345,37 +312,40 @@ router.post("/", async (context) => {
     }
   );
 
-  context.executionCtx.waitUntil(
-    (async () => {
-      try {
-        const requestData = await context.req.json();
-        const queryParams = await handleUserQuery(
-          requestData,
-          context.env,
-          responseWriter
-        );
-        responseWriter.releaseLock();
-        console.log("stream response");
-        await streamAiResponse(queryParams, context.env, writableStream);
-        console.log("stream response done");
-      } catch (error) {
-        console.error(error);
-        await responseWriter.write(
-          new TextEncoder().encode(
-            `data: ${JSON.stringify({ error: (error as Error).message })}\n\n`
-          )
-        );
-        await responseWriter.close();
-      }
-    })()
-  );
+  // const { readable: readableStream, writable: writableStream } =
+  //   new TransformStream();
+  // const responseWriter = writableStream.getWriter();
 
-  return new Response(readableStream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Transfer-Encoding": "chunked",
-      "content-encoding": "identity",
-    },
+  // return new Response(readableStream, {
+  //   headers: {
+  //     "Content-Type": "text/event-stream",
+  //     "Transfer-Encoding": "chunked",
+  //     "content-encoding": "identity",
+  //   },
+  // });
+
+  const requestData = await context.req.json();
+  return stream(context, async (stream) => {
+    // Write a process to be executed when aborted.
+    stream.onAbort(() => {
+      console.log("Aborted!");
+    });
+
+    try {
+      const queryParams = await handleUserQuery(
+        requestData,
+        context.env,
+        stream
+      );
+      await streamAiResponse(queryParams, context.env, stream);
+    } catch (error) {
+      console.error(error);
+      await stream.write(
+        new TextEncoder().encode(
+          `data: ${JSON.stringify({ error: (error as Error).message })}\n\n`
+        )
+      );
+    }
   });
 });
 

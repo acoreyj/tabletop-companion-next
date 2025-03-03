@@ -7,13 +7,17 @@
     "build": "pnpm -r --parallel build",
     "start": "pnpm -r --parallel start",
     "lint": "pnpm -r --parallel lint",
-    "dev:rag": "pnpm --filter rag dev",
-    "build:rag": "pnpm --filter rag build",
-    "start:rag": "pnpm --filter rag start",
-    "lint:rag": "pnpm --filter rag lint",
+    "dev:rag": "pnpm --filter @tabletop-companion/rag-server dev",
+    "build:rag": "pnpm --filter @tabletop-companion/rag-server build",
+    "start:rag": "pnpm --filter @tabletop-companion/rag-server start",
+    "lint:rag": "pnpm --filter @tabletop-companion/rag-server lint",
     "dev:tblcmp": "pnpm --filter tblcmp dev",
     "build:tblcmp": "pnpm --filter tblcmp build",
     "start:tblcmp": "pnpm --filter tblcmp start",
     "lint:tblcmp": "pnpm --filter tblcmp lint"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3",
+    "prettier-plugin-tailwindcss": "^0.6.11"
   }
 }

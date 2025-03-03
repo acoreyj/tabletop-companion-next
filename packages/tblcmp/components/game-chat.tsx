@@ -13,7 +13,9 @@ import {
 } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { Game } from "@/lib/types";
+import { useToast } from "@/hooks/use-toast";
 import { v4 as uuidv4 } from "uuid";
+import { stream } from "fetch-event-stream";
 
 interface GameChatProps {
   game: Game;
@@ -24,6 +26,7 @@ interface Message {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: Date;
+  isHidden?: boolean;
 }
 
 interface RagStepInfo {
@@ -43,7 +46,11 @@ export function GameChat({ game }: GameChatProps) {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [ragSteps, setRagSteps] = useState<RagStepInfo[]>([]);
+  const [informativeMessage, setInformativeMessage] = useState("");
+  const [relevantContext, setRelevantContext] = useState<any[]>([]);
+  const [queries, setQueries] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
   const ragEndpoint =
     process.env.NEXT_PUBLIC_RAG_ENDPOINT || "http://localhost:8787/api";
 
@@ -71,6 +78,9 @@ export function GameChat({ game }: GameChatProps) {
     setInput("");
     setIsLoading(true);
     setRagSteps([]);
+    setInformativeMessage("");
+    setRelevantContext([]);
+    setQueries([]);
 
     try {
       // Create a unique session ID based on the game ID
@@ -88,100 +98,111 @@ export function GameChat({ game }: GameChatProps) {
       });
 
       // Call the RAG server with streaming response
-      const response = await fetch(`${ragEndpoint}/query`, {
+      const response = await stream(`${ragEndpoint}/query`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+          "Content-Type": "text/event-stream",
         },
         body: JSON.stringify({
           messages: messageHistory,
           provider: "groq",
           model: "llama-3.3-70b-versatile",
           sessionId,
+          game: game.name,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      for await (const event of response) {
+        try {
+          const parsedChunk = JSON.parse(
+            event?.data?.trim().replace(/^data:\s*/, "") || ""
+          );
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("Response body is not readable");
-      }
+          const newContent =
+            parsedChunk.response ||
+            parsedChunk.choices?.[0]?.delta?.content ||
+            parsedChunk.delta?.text ||
+            parsedChunk.text ||
+            "";
 
-      let assistantMessage = "";
-      const decoder = new TextDecoder();
+          if (newContent) {
+            setInformativeMessage("");
 
-      // Process the stream
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n\n");
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.substring(6));
-
-              // Handle different types of messages from the RAG server
-              if (data.message) {
-                // This is a step update
-                setRagSteps((prev) => [
-                  ...prev,
+            setMessages((prevMessages) => {
+              const lastMessage = prevMessages[prevMessages.length - 1];
+              if (lastMessage?.role === "assistant" && !lastMessage.isHidden) {
+                // Check if the new content is already at the end of the last message
+                if (!lastMessage.content.endsWith(newContent)) {
+                  return [
+                    ...prevMessages.slice(0, -1),
+                    {
+                      ...lastMessage,
+                      isHidden: false,
+                      content: lastMessage.content + newContent,
+                    },
+                  ];
+                }
+              } else {
+                return [
+                  ...prevMessages,
                   {
-                    step: data.message,
-                    data: data.queries || data.relevantContext || null,
+                    id: uuidv4(),
+                    content: newContent,
+                    role: "assistant",
+                    isHidden: false,
+                    timestamp: new Date(),
                   },
-                ]);
-              } else if (data.text) {
-                // This is the actual LLM response
-                assistantMessage += data.text;
-
-                // Update the assistant message in real-time
-                setMessages((prev) => {
-                  const newMessages = [...prev];
-                  const assistantMsgIndex = newMessages.findIndex(
-                    (msg) =>
-                      msg.role === "assistant" &&
-                      msg.content.startsWith(assistantMessage.substring(0, 10))
-                  );
-
-                  if (assistantMsgIndex >= 0) {
-                    newMessages[assistantMsgIndex].content = assistantMessage;
-                  } else {
-                    newMessages.push({
-                      id: uuidv4(),
-                      role: "assistant",
-                      content: assistantMessage,
-                      timestamp: new Date(),
-                    });
-                  }
-
-                  return newMessages;
-                });
+                ];
               }
-            } catch (e) {
-              console.error("Error parsing SSE data:", e);
-            }
-          }
-        }
-      }
+              return prevMessages; // Return unchanged if content was already added
+            });
+          } else if (parsedChunk.message) {
+            console.log("Informative message:", parsedChunk.message);
+            setInformativeMessage(parsedChunk.message);
 
-      // If no assistant message was added during streaming, add it now
-      if (!assistantMessage) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: uuidv4(),
-            role: "assistant",
-            content:
-              "I'm sorry, I couldn't generate a response. Please try again.",
-            timestamp: new Date(),
-          },
-        ]);
+            // Add to RAG steps
+            setRagSteps((prev) => [
+              ...prev,
+              {
+                step: parsedChunk.message,
+                data:
+                  parsedChunk.queries || parsedChunk.relevantContext || null,
+              },
+            ]);
+          } else if (parsedChunk.error) {
+            console.error("Error:", parsedChunk.error);
+            setInformativeMessage("");
+            toast({
+              title: "Error",
+              description: parsedChunk.error,
+              variant: "destructive",
+            });
+          }
+
+          if (parsedChunk.relevantContext) {
+            setRelevantContext(parsedChunk.relevantContext);
+            // Add relevant context to messages array
+            setMessages((prevMessages) => [
+              ...prevMessages,
+              {
+                id: uuidv4(),
+                content:
+                  "Relevant context:\n" +
+                  parsedChunk.relevantContext
+                    .map((ctx: { text: string }) => ctx.text)
+                    .join("\n"),
+                role: "assistant",
+                isHidden: true,
+                timestamp: new Date(),
+              },
+            ]);
+          }
+          if (parsedChunk.queries) {
+            setQueries(parsedChunk.queries);
+          }
+        } catch (error) {
+          console.log("Non-JSON chunk received:", event?.data);
+        }
       }
     } catch (error) {
       console.error("Error querying RAG server:", error);
@@ -195,6 +216,12 @@ export function GameChat({ game }: GameChatProps) {
           timestamp: new Date(),
         },
       ]);
+
+      toast({
+        title: "Error",
+        description: "Failed to connect to the server. Please try again later.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -223,8 +250,8 @@ export function GameChat({ game }: GameChatProps) {
                             {typeof item === "string"
                               ? item
                               : item.text
-                              ? `${item.text.substring(0, 50)}...`
-                              : JSON.stringify(item).substring(0, 50) + "..."}
+                                ? `${item.text.substring(0, 50)}...`
+                                : JSON.stringify(item).substring(0, 50) + "..."}
                           </li>
                         ))}
                         {step.data.length > 3 && (
@@ -246,37 +273,45 @@ export function GameChat({ game }: GameChatProps) {
 
       <CardContent className="flex-1 overflow-y-auto p-6">
         <div className="space-y-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${
-                message.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              <div
-                className={`flex max-w-[80%] items-start space-x-2 rounded-lg p-3 ${
-                  message.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted"
-                }`}
-              >
-                {message.role !== "user" && (
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage
-                      src="/placeholder.svg?height=32&width=32"
-                      alt="Avatar"
-                    />
-                    <AvatarFallback>
-                      {message.role === "system" ? "S" : "A"}
-                    </AvatarFallback>
-                  </Avatar>
-                )}
-                <div>
-                  <p>{message.content}</p>
-                </div>
-              </div>
+          {informativeMessage && (
+            <div className="mb-2 rounded-md bg-blue-50 p-2 text-sm text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+              {informativeMessage}
             </div>
-          ))}
+          )}
+          {messages.map(
+            (message) =>
+              !message.isHidden && (
+                <div
+                  key={message.id}
+                  className={`flex ${
+                    message.role === "user" ? "justify-end" : "justify-start"
+                  }`}
+                >
+                  <div
+                    className={`flex max-w-[80%] items-start space-x-2 rounded-lg p-3 ${
+                      message.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
+                    }`}
+                  >
+                    {message.role !== "user" && (
+                      <Avatar className="h-8 w-8">
+                        <AvatarImage
+                          src="/placeholder.svg?height=32&width=32"
+                          alt="Avatar"
+                        />
+                        <AvatarFallback>
+                          {message.role === "system" ? "S" : "A"}
+                        </AvatarFallback>
+                      </Avatar>
+                    )}
+                    <div>
+                      <p>{message.content}</p>
+                    </div>
+                  </div>
+                </div>
+              )
+          )}
           <div ref={messagesEndRef} />
         </div>
       </CardContent>

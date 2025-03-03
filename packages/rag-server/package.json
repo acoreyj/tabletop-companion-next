@@ -1,5 +1,5 @@
 {
-  "name": "@sonicjs/rag-server",
+  "name": "@tabletop-companion/rag-server",
   "version": "1.0.0",
   "description": "RAG (Retrieval-Augmented Generation) server for SonicJS",
   "main": "index.ts",
