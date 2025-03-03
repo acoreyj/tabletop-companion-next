@@ -230,7 +230,7 @@ export function GameChat({ game }: GameChatProps) {
   return (
     <Card className="flex h-[calc(100vh-200px)] min-h-[600px] flex-col">
       <CardHeader className="border-b px-6 py-4">
-        <CardTitle>Game Discussion</CardTitle>
+        <CardTitle>Chat</CardTitle>
       </CardHeader>
 
       {/* RAG Steps Panel - Pinned at the top */}
