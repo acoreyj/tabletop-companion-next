@@ -1,0 +1,45 @@
+{
+  "name": "rag-server",
+  "compatibility_date": "2025-02-14",
+  "main": "index.ts",
+  "observability": {
+    "enabled": true,
+  },
+  "workers_dev": true,
+  "placement": {
+    "mode": "smart"
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "vectorize": {
+    "binding": "VECTORIZE_INDEX",
+    "index_name": "cloudflare-rag-index"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cloudflare-rag",
+      "database_id": "e0e73105-1b12-4807-9a82-c7126304dd98",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET",
+      "bucket_name": "cloudflare-rag-bucket"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "rate_limiter",
+      "id": "2779de07d99748f685310f1f6221cd86"
+    }
+  ],
+  "env": {
+    "GROQ_API_KEY": "",
+    "OPENAI_API_KEY": "",
+    "ANTHROPIC_API_KEY": "",
+    "CLOUDFLARE_ACCOUNT_ID": ""
+  }
+} 

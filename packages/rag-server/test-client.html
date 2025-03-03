@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>RAG Server Test Client</title>
+	<style>
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+			max-width: 800px;
+			margin: 0 auto;
+			padding: 20px;
+			line-height: 1.6;
+		}
+
+		h1 {
+			color: #333;
+			border-bottom: 1px solid #eee;
+			padding-bottom: 10px;
+		}
+
+		.form-group {
+			margin-bottom: 20px;
+		}
+
+		label {
+			display: block;
+			margin-bottom: 5px;
+			font-weight: bold;
+		}
+
+		input[type="file"] {
+			display: block;
+			margin-top: 5px;
+		}
+
+		button {
+			background-color: #4CAF50;
+			color: white;
+			padding: 10px 15px;
+			border: none;
+			border-radius: 4px;
+			cursor: pointer;
+			font-size: 16px;
+		}
+
+		button:hover {
+			background-color: #45a049;
+		}
+
+		button:disabled {
+			background-color: #cccccc;
+			cursor: not-allowed;
+		}
+
+		#progress-container {
+			margin-top: 20px;
+			display: none;
+		}
+
+		.progress-bar {
+			height: 20px;
+			background-color: #f0f0f0;
+			border-radius: 4px;
+			margin-bottom: 10px;
+			overflow: hidden;
+		}
+
+		.progress-bar-fill {
+			height: 100%;
+			background-color: #4CAF50;
+			width: 0%;
+			transition: width 0.3s ease;
+		}
+
+		#status {
+			margin-top: 10px;
+			font-weight: bold;
+		}
+
+		#log {
+			margin-top: 20px;
+			padding: 10px;
+			background-color: #f5f5f5;
+			border-radius: 4px;
+			height: 200px;
+			overflow-y: auto;
+			font-family: monospace;
+			white-space: pre-wrap;
+		}
+	</style>
+</head>
+
+<body>
+	<h1>RAG Server Test Client</h1>
+
+	<div class="form-group">
+		<label for="file-upload">Upload PDF File:</label>
+		<input type="file" id="file-upload" accept="application/pdf" />
+	</div>
+
+	<button id="upload-btn">Upload and Process</button>
+
+	<div id="progress-container">
+		<h3>Processing Progress</h3>
+		<div class="progress-bar">
+			<div class="progress-bar-fill" id="progress-bar-fill"></div>
+		</div>
+		<div id="status">Initializing...</div>
+		<div id="log"></div>
+	</div>
+
+	<script>
+		document.addEventListener('DOMContentLoaded', () => {
+			const uploadBtn = document.getElementById('upload-btn');
+			const fileUpload = document.getElementById('file-upload');
+			const progressContainer = document.getElementById('progress-container');
+			const progressBarFill = document.getElementById('progress-bar-fill');
+			const statusElement = document.getElementById('status');
+			const logElement = document.getElementById('log');
+
+			// Server URL - update this to your deployed server URL
+			const SERVER_URL = 'http://localhost:8787/api/upload';
+
+			uploadBtn.addEventListener('click', async () => {
+				const file = fileUpload.files[0];
+				if (!file) {
+					alert('Please select a PDF file to upload');
+					return;
+				}
+
+				// Disable button and show progress container
+				uploadBtn.disabled = true;
+				progressContainer.style.display = 'block';
+				statusElement.textContent = 'Starting upload...';
+				logElement.textContent = '';
+
+				// Create form data
+				const formData = new FormData();
+				formData.append('file', file);
+				formData.append('sessionId', generateSessionId());
+
+				try {
+					// Make fetch request
+					const response = await fetch(SERVER_URL, {
+						method: 'POST',
+						body: formData,
+					});
+
+					if (!response.ok) {
+						throw new Error(`Server responded with status: ${response.status}`);
+					}
+
+					// Process the streaming response
+					const reader = response.body.getReader();
+					const decoder = new TextDecoder();
+
+					while (true) {
+						const { done, value } = await reader.read();
+
+						if (done) {
+							break;
+						}
+
+						// Decode the chunk and split by newlines
+						const chunk = decoder.decode(value, { stream: true });
+						const lines = chunk.split('\n').filter(line => line.trim());
+
+						// Process each line as a JSON message
+						for (const line of lines) {
+							try {
+								const message = JSON.parse(line);
+								logElement.textContent += JSON.stringify(message, null, 2) + '\n';
+								logElement.scrollTop = logElement.scrollHeight;
+
+								// Update progress bar if progress is available
+								if (message.progress) {
+									progressBarFill.style.width = `${Math.min(message.progress, 100)}%`;
+								}
+
+								// Update status message
+								if (message.message) {
+									statusElement.textContent = message.message;
+								}
+
+								// Handle completion
+								if (message.status === 'success') {
+									statusElement.textContent = 'Processing complete!';
+									progressBarFill.style.width = '100%';
+								}
+
+								// Handle errors
+								if (message.error) {
+									statusElement.textContent = `Error: ${message.error}`;
+									statusElement.style.color = 'red';
+								}
+							} catch (e) {
+								console.error('Error parsing JSON:', e, line);
+								logElement.textContent += `Error parsing: ${line}\n`;
+							}
+						}
+					}
+				} catch (error) {
+					console.error('Error:', error);
+					statusElement.textContent = `Error: ${error.message}`;
+					statusElement.style.color = 'red';
+				} finally {
+					// Re-enable button
+					uploadBtn.disabled = false;
+				}
+			});
+
+			// Generate a random session ID
+			function generateSessionId() {
+				return Math.random().toString(36).substring(2, 15) +
+					Math.random().toString(36).substring(2, 15);
+			}
+		});
+	</script>
+</body>
+
+</html>

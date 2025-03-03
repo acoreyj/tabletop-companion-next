@@ -1,0 +1,29 @@
+{
+  "name": "@sonicjs/rag-server",
+  "version": "1.0.0",
+  "description": "RAG (Retrieval-Augmented Generation) server for SonicJS",
+  "main": "index.ts",
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --experimental-vectorize-bind-to-prod",
+    "migrate:local": "npx drizzle-kit generate && wrangler d1 migrations apply cloudflare-rag --local",
+    "migrate": "npx drizzle-kit generate && wrangler d1 migrations apply cloudflare-rag --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241018.0",
+    "drizzle-kit": "^0.30.4",
+    "typescript": "^5.5.2",
+    "wrangler": "^3.111.0"
+  },
+  "dependencies": {
+    "@langchain/textsplitters": "^0.1.0",
+    "drizzle-orm": "^0.39.3",
+    "hono": "^4.7.2",
+    "schema": "^0.2.1",
+    "ulidx": "^2.4.1",
+    "unpdf": "^0.12.1"
+  }
+}

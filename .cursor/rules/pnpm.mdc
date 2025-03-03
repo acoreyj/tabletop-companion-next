@@ -1,0 +1,6 @@
+---
+description: install packages using pnpm
+globs: 
+alwaysApply: false
+---
+use pnpm install not npm install

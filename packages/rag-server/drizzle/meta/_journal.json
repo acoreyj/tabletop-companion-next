@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1740857473627,
+      "tag": "20250301193113_sloppy_microchip",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1740969171356,
+      "tag": "20250303023251_young_arachne",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1740972459392,
+      "tag": "20250303032739_aromatic_the_leader",
+      "breakpoints": true
+    }
+  ]
+}

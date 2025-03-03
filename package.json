@@ -1,0 +1,19 @@
+{
+  "name": "tabletop-companion-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r --parallel build",
+    "start": "pnpm -r --parallel start",
+    "lint": "pnpm -r --parallel lint",
+    "dev:rag": "pnpm --filter rag dev",
+    "build:rag": "pnpm --filter rag build",
+    "start:rag": "pnpm --filter rag start",
+    "lint:rag": "pnpm --filter rag lint",
+    "dev:tblcmp": "pnpm --filter tblcmp dev",
+    "build:tblcmp": "pnpm --filter tblcmp build",
+    "start:tblcmp": "pnpm --filter tblcmp start",
+    "lint:tblcmp": "pnpm --filter tblcmp lint"
+  }
+}
