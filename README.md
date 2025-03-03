@@ -2,6 +2,18 @@
 
 A companion application for tabletop games.
 
+**[🚀 Live Demo: https://tabletop-companion.vercel.app/](https://tabletop-companion.vercel.app/)**
+
+## Upload Rules
+
+![Screenshot 2025-03-03 141342](https://github.com/user-attachments/assets/55ea0e28-a288-47f1-a8b6-13cbc35af98f)
+
+## Ask Questions
+
+![Screenshot 2025-03-03 141100](https://github.com/user-attachments/assets/ff89ad85-b5b8-40c3-9e84-bcda7033eeb2)
+
+![Screenshot 2025-03-03 141417](https://github.com/user-attachments/assets/fc7fe46b-6413-4714-95a8-3e3c32acd5ba)
+
 ## Features
 
 - Game details display
