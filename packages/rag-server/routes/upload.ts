@@ -282,6 +282,18 @@ app.post("/", async (c) => {
         return;
       }
 
+      const lockedGames = "game-13,game-822,game-30549";
+      const isLocked = lockedGames.includes(sessionId);
+
+      if (isLocked) {
+        await sendProgressUpdate({
+          message:
+            "For demo purposes, this game is locked and cannot be uploaded to, please try another game",
+          status: "locked",
+        });
+        return;
+      }
+
       // Step 1: Upload file to R2
       await sendProgressUpdate({ message: "Uploading file..." });
       console.info("Uploading file to R2...");
